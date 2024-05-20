@@ -1,15 +1,17 @@
 # 🔌 Installation
-Créer un environnement virtuel (optionnel mais recommandé)
+1. Télécharger le code.
+2. Dans un terminal, créer un environnement virtuel (optionnel mais recommandé)
 ```
 python -m venv venv
 ```
-Activer l'environnement virtuel
+3. Activer l'environnement virtuel
 ```
 source venv/bin/activate # Linux
 venv\Scripts\activate # Windows
 ```
-Installer les dépendances
+4. Installer les dépendances
 ```
 pip install -r requirements.txt
 ```
-Puis aller sur le notebook et sélectionner le kernel associé au venv.
+5. Puis aller sur le notebook et sélectionner le kernel associé au venv.
+6. Have fun!
