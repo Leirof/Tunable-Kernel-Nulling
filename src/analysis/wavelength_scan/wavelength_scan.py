@@ -17,6 +17,10 @@ import phise
 from phise.classes.context import Context
 from phise.modules import utils
 from io import BytesIO
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
 
 def run(ctx: Context=None, scan_range=0.2 * u.um, obs_bandwidth=0 * u.um, n=11, figsize=(5, 5), save_as=None, return_image=False, algo="Obstruction", algo_params=None, progress_callback=None):
 
@@ -126,8 +130,14 @@ def run(ctx: Context=None, scan_range=0.2 * u.um, obs_bandwidth=0 * u.um, n=11, 
     plt.title('Spectral Scan Analysis')
     plt.legend()
     
+    fig = plt.gcf()
     if save_as:
-        utils.save_plot(save_as, "wavelength_scan.png")
+        save_figure(fig, "wavelength_scan", save_as, analysis_name="wavelength_scan")
+        save_dataset({
+            "wavelengths": λs.to(u.nm).value,
+            "data_dynamic": data_dynamic,
+            "data_static": data_static,
+        }, "wavelength_scan_data", save_as=save_as, analysis_name="wavelength_scan")
     
     if return_image:
         buf = BytesIO()
@@ -136,3 +146,6 @@ def run(ctx: Context=None, scan_range=0.2 * u.um, obs_bandwidth=0 * u.um, n=11, 
         return buf.getvalue()
         
     plt.show()
+
+if __name__ == "__main__":
+    run(save_as="archives", n=7)

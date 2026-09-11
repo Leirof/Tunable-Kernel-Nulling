@@ -27,3 +27,7 @@ _build/
 
 # Generated files
 generated/
+
+# Data archives
+**/archives/
+**/archive/

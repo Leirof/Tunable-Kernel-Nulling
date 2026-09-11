@@ -16,6 +16,10 @@ from phise.classes import Context
 from phise.modules import coordinates, utils
 from phise.classes.context import project_position_jit, get_unique_source_input_fields_jit
 from phise.classes.archs.superkn import expected_outputs_jit
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
 
 def get_contribution_map(ctx: Context, resolution: int = 100, n: int = 100, map_func=np.median):
     """
@@ -112,7 +116,7 @@ def plot(ctx: Context=None, resolution: int=100, n=100, map=np.median, save_as=N
     ref_ctx = res["ctx"] # Using the context used in calculation (which might be default if ctx was None)
 
     max_im = np.max(images)
-    (_, axs) = plt.subplots(1, 4, figsize=(25, 5))
+    (fig, axs) = plt.subplots(1, 4, figsize=(25, 5))
     fov = ref_ctx.interferometer.fov.to(u.mas)
     extent = [-fov.value / 2, fov.value / 2, -fov.value / 2, fov.value / 2]
     for k in range(3):
@@ -132,7 +136,8 @@ def plot(ctx: Context=None, resolution: int=100, n=100, map=np.median, save_as=N
         (planet_x, planet_y) = coordinates.ρθ_to_xy(ρ=companion.ρ, θ=companion.θ, fov=fov)
         axs[3].scatter(planet_x * fov / 2, planet_y * fov / 2, color='tab:blue', edgecolors='black')
     if save_as:
-        utils.save_plot(save_as, "sky_contribution.png")
+        save_figure(fig, "sky_contribution", save_as, analysis_name="sky_contribution")
+        save_dataset({"images": images, "stack": stack}, "contribution_maps", save_as=save_as, analysis_name="sky_contribution")
 
     plt.show()
 
@@ -357,6 +362,21 @@ def plot_filtered_contribution(ctx: Context, data: np.ndarray, h_range: np.ndarr
                        marker='x', s=100, edgecolors='black')
 
     if save_as:
-        utils.save_plot(save_as, "filtered_contribution.png")
+        save_figure(fig, "filtered_contribution", save_as, analysis_name="sky_contribution")
+        save_dataset({
+            "sky_contrib": sky_contrib,
+            "corr_map": corr_map,
+            "filtered_map": filtered_map,
+        }, "filtered_contribution_data", save_as=save_as, analysis_name="sky_contribution")
         
     plt.show()
+
+def run(save_as: str = "archives"):
+    """Standalone runner for sky contribution analysis."""
+    print("Running sky_contribution analysis...")
+    ctx = Context.get_VLTI()
+    plot(ctx=ctx, resolution=40, n=20, save_as=save_as)
+    print("Done sky_contribution.")
+
+if __name__ == "__main__":
+    run()

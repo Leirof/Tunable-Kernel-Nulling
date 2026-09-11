@@ -11,10 +11,14 @@ from scipy import stats
 from phise import Context
 import phise
 from phise.modules import utils
-from phise.modules.test_statistics import ALL_TESTS
+from phise.modules.test_statistics import ALL_TESTS, get_vectors
 import phise.modules.test_statistics as ts_module
 import scipy.special
 from phise.modules import utils
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
 
 def roc(t0: np.ndarray, t1: np.ndarray, test: callable):
     t0_stats = np.array([test(t0[i], t0[i + 1]) if i + 1 < t0.shape[0] else test(t0[i], t0[0]) for i in range(t0.shape[0])])
@@ -33,7 +37,7 @@ def roc(t0: np.ndarray, t1: np.ndarray, test: callable):
     return (np.array(pfa), np.array(pdet), thresholds)
 
 def plot_rocs(t0: np.ndarray, t1: np.ndarray, tests: dict=ALL_TESTS, figsize=(6, 6), save_as=None):
-    plt.figure(figsize=figsize, constrained_layout=True)
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
     for (name, test) in tests.items():
         (pfa, pdet, thresholds) = roc(t0, t1, test)
         plt.plot(pfa, pdet, label=f'{name}')
@@ -44,9 +48,8 @@ def plot_rocs(t0: np.ndarray, t1: np.ndarray, tests: dict=ALL_TESTS, figsize=(6,
     plt.ylabel('True Positive Rate')
     plt.title('ROC Curve')
     plt.legend()
-    plt.legend()
     if save_as:
-        utils.save_plot(save_as, "roc_curves.png")
+        save_figure(fig, "roc_curves", save_as, analysis_name="distrib_test_statistics")
     plt.show()
 
 def test_power(ctx=None, tests=ALL_TESTS, nmc=100, bootstrap=10, resolution=10, maxpoints=1000, save_as=None):
@@ -89,7 +92,7 @@ def test_power(ctx=None, tests=ALL_TESTS, nmc=100, bootstrap=10, resolution=10, 
             auc_bootstrap[ts_name].append(auc)
             power_bootstrap[ts_name].append(power)
         print('Done computing tests power ✅')
-    (_, axs) = plt.subplots(1, 2, figsize=(12, 6))
+    (fig, axs) = plt.subplots(1, 2, figsize=(12, 6))
     colors = plt.cm.gist_rainbow(np.linspace(0, 1, len(tests)))
     for (i, (ts_name, test_fn)) in enumerate(tests.items()):
         auc_mean = np.mean(auc_bootstrap[ts_name], axis=0)
@@ -109,12 +112,12 @@ def test_power(ctx=None, tests=ALL_TESTS, nmc=100, bootstrap=10, resolution=10, 
     axs[1].set_title('Power ($P_{det}$ at $P_{fa}<1\\%$)')
     plt.legend()
     if save_as:
-        utils.save_plot(save_as, "test_power.png")
+        save_figure(fig, "test_power", save_as, analysis_name="distrib_test_statistics")
 
 def plot_p_values(t0, t1, tests=ALL_TESTS, save_as=None):
     col = min(2, len(tests))
     row = int(np.ceil(len(tests) / col))
-    (_, axs) = plt.subplots(row, col, figsize=(5 * col, 5 * row))
+    (fig, axs) = plt.subplots(row, col, figsize=(5 * col, 5 * row))
     axs = axs.flatten()
     for (t, (ts_name, ts)) in enumerate(tests.items()):
         sup = 0
@@ -132,10 +135,8 @@ def plot_p_values(t0, t1, tests=ALL_TESTS, save_as=None):
         axs[t].set_ylabel('P-value')
         axs[t].set_title(f'P-values for {ts_name}')
         axs[t].legend()
-        axs[t].set_title(f'P-values for {ts_name}')
-        axs[t].legend()
     if save_as:
-        utils.save_plot(save_as, "p_values.png")
+        save_figure(fig, "p_values", save_as, analysis_name="distrib_test_statistics")
     plt.show()
 
 #==============================================================================
@@ -223,7 +224,7 @@ def np_benchmark(ctx: Context=None, save_as=None):
 
     # Init plot
     x = np.linspace(min(np.min(h0_data_kn), np.min(h1_data_kn)), max(np.max(h0_data_kn), np.max(h1_data_kn)), 1000)
-    plt.figure(figsize=(10, 6))
+    fig = plt.figure(figsize=(10, 6))
 
     # Reference distributions
     plt.hist(h0_data_kn, bins=bins, density=True, alpha=0.5, label='h0 data', color='blue', log=True)
@@ -232,14 +233,6 @@ def np_benchmark(ctx: Context=None, save_as=None):
     # Fitted distributions
     plt.plot(x, stats.cauchy.pdf(x, loc=x0, scale=γ0), 'b--', label='h0 cauchy fit', linewidth=2)
     plt.plot(x, stats.cauchy.pdf(x, loc=x1, scale=γ1), 'r--', label='h1 cauchy fit', linewidth=2)
-    # plt.plot(x, stats.laplace.pdf(x, loc=μ0, scale=b0), 'b:', label='h0 laplace fit', linewidth=2)
-    # plt.plot(x, stats.laplace.pdf(x, loc=μ1, scale=b1), 'r:', label='h1 laplace fit', linewidth=2)
-    # plt.plot(x, stats.gennorm.pdf(x, β0, m0, s0), 'b-.', label='h0 gennorm fit', linewidth=2)
-    # plt.plot(x, stats.gennorm.pdf(x, β1, m1, s1), 'r-.', label='h1 gennorm fit', linewidth=2)
-    # plt.plot(x, 0.5 * stats.cauchy.pdf(x, loc=x0, scale=γ0) + 0.5 * stats.laplace.pdf(x, loc=μ0, scale=b0), 'b.', label='h0 mix fit', linewidth=2)
-    # plt.plot(x, 0.5 * stats.cauchy.pdf(x, loc=x1, scale=γ1) + 0.5 * stats.laplace.pdf(x, loc=μ1, scale=b1), 'r.', label='h1 mix fit', linewidth=2)
-    # plt.plot(x, kde_h0(x), 'b-', label='h0 KDE', linewidth=2)
-    # plt.plot(x, kde_h1(x), 'r-', label='h1 KDE', linewidth=2)
     plt.plot(x, imb(x, μ_imb0, σ_imb0, ν_imb0), 'b-.', label='h0 IMB fit', linewidth=2)
     plt.plot(x, imb(x, μ_imb1, σ_imb1, ν_imb1), 'r-.', label='h1 IMB fit', linewidth=2)
     
@@ -249,7 +242,7 @@ def np_benchmark(ctx: Context=None, save_as=None):
     plt.title('Distributions and Fits')
     plt.legend()
     if save_as:
-        utils.save_plot(save_as, "distributions.png")
+        save_figure(fig, "distributions", save_as, analysis_name="distrib_test_statistics")
     plt.show()
 
     # Generate random distributions from the fitted models
@@ -343,3 +336,20 @@ def np_benchmark(ctx: Context=None, save_as=None):
     tests['Likelihood Ratio'] = lr_imb
     plot_rocs(t0_imb, t1_imb, tests=tests, figsize=(4, 4))
     print('✅ ROC curves plotted.')
+
+def run(ctx=None, save_as="archives", nmc=50, maxpoints=200):
+    """Standalone runner for distribution test statistics analysis."""
+    print("Running distrib_test_statistics analysis...")
+    if ctx is None:
+        ctx = Context.get_VLTI()
+        ctx.interferometer.chip.σ = np.zeros(14) * u.nm
+        ctx.target.companions[0].c = 0.0001
+    
+    (t0, t1) = ts_module.get_vectors(ctx=ctx, nmc=nmc, size=maxpoints)
+    plot_p_values(t0, t1, save_as=save_as)
+    test_power(ctx=ctx, nmc=nmc, bootstrap=3, resolution=5, maxpoints=maxpoints, save_as=save_as)
+    save_dataset({"t0": t0, "t1": t1}, "test_vectors", save_as=save_as, analysis_name="distrib_test_statistics")
+    print("Done distrib_test_statistics.")
+
+if __name__ == "__main__":
+    run()

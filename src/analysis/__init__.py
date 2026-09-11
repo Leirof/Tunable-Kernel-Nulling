@@ -5,6 +5,7 @@ Ce module expose les sous-modules d'analyse fournis dans le package
 contient des utilitaires pour visualiser, mesurer et analyser les 
 performances du nuller à noyau et des outils de calibration/demo.
 """
+from . import io_utils
 from . import projected_telescopes
 from . import transmission_maps
 from . import sky_contribution
@@ -21,3 +22,9 @@ from . import wavelength_scan
 from . import image_reconstruction
 from . import hooke_jeeves
 from . import detector_optimal_frame_size
+from . import transfer_function
+from . import crosstalk_vs_null
+from . import null_self_calibration
+
+# Backward compatibility aliases
+wavelenght_scan = wavelength_scan

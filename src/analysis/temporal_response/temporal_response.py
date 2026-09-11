@@ -16,6 +16,10 @@ from IPython.display import display
 from phise.classes import Companion
 from phise.modules import utils
 from phise.examples import contexts
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
 
 
 def _series_kernels_and_bright(ctx: Context, n: int = 1):
@@ -44,7 +48,7 @@ def _series_kernels_and_bright(ctx: Context, n: int = 1):
     return kernels, bright
 
 
-def gui(ctx: Context=None):
+def gui(ctx: Context=None, save_as: str = None):
     """
     GUI for the temporal response analysis.
 
@@ -52,6 +56,8 @@ def gui(ctx: Context=None):
     ----------
     ctx : Context
         The context to use for the analysis.
+    save_as : str, optional
+        Path to save the generated plot.
     """
     if ctx is None:
         ctx = contexts.get_VLTI()
@@ -157,7 +163,6 @@ Returns
     reset_button.on_click(lambda x: reset_values())
 
     def export_plot(*_):
-        # Recreate context from sliders
         tmp_ctx = copy(ctx)
         nb_companions = int(nb_companion_selector.value)
         tmp_ctx.target.companions = []
@@ -166,65 +171,63 @@ Returns
             ρ = ρ_slider.value * u.mas
             c = 10 ** c_slider.value
             tmp_ctx.target.companions.append(Companion(c=c, ρ=ρ, θ=θ, name=f'Companion {i + 1}'))
-        
-        # Call the plotting function (assuming one exists that saves? 
-        # Actually temporal_response.py doesn't have a standalone 'plot_temporal_response' that takes save_as logic easily on context? 
-        # Wait, 'plot_temporal_response' is not a method on Context. It's likely a function in this module or user wants the plot from gui.
-        # The 'gui' function builds the plot manually. 
-        # We need to extract the plotting logic or copy it.
-        # Let's duplicate the plotting logic for now to ensure it saves.)
-        
-        # ... actually, I should check if there IS a plot_temporal_response function in this file.
-        # I did rename 'gui' to 'plot_temporal_response' in specific steps? 
-        # Wait, step 230 shows 'def gui'. AND 'def fit'. No 'plot_temporal_response'.
-        # I claimed in 'update_notebook.py' that I renamed 'gui' to 'plot_temporal_response'.
-        # But 'view_file' shows 'def gui'.
-        # This implies I likely reverted the rename in my mind or failed to apply it? 
-        # Or 'update_notebook.py' was just updating calls, assuming I WOULD rename.
-        # But step 230 shows 'def gui' at line 19.
-        # So there is NO 'plot_temporal_response' function.
-        # I must implement the saving logic inside export_plot.
-        
-        (_, axs) = plt.subplots(3, 1, figsize=(10, 10))
-        tmp_ctx.interferometer.camera.e = ctx.Δh.to(u.hourangle).value * u.hour / 100
-        for i in range(nb_companions + 1):
-            if nb_companions == 1 and i == 1:
-                continue
-            tmp2_ctx = copy(tmp_ctx)
-            if i < nb_companions:
-                tmp2_ctx.target.companions = [tmp_ctx.target.companions[i]]
-            else:
-                tmp2_ctx.target.companions = tmp_ctx.target.companions
-            k, b = _series_kernels_and_bright(tmp2_ctx, n=1)
-            h_range = tmp_ctx.get_h_range()
-            for kernel in range(3):
-                k[:, kernel] /= b
-                if i < nb_companions:
-                    axs[kernel].plot(h_range, k[:, kernel], label=f'Companion {i + 1}', alpha=0.5)
-                else:
-                    axs[kernel].plot(h_range, k[:, kernel], label='Total Response', alpha=0.5, linestyle='--', color='k')
-            for ax in axs:
-                ax.set_xlabel('Hour Angle (h)')
-                ax.set_ylabel('Kernel Value')
-                ax.legend()
-
-        plt.show()
+        plot_temporal_response(tmp_ctx, save_as=save_as)
 
     export_button.on_click(export_plot)
     display(widgets.VBox([widgets.Label('Select the number of companions:'), nb_companion_selector, *[widgets.HBox([θ_slider, ρ_slider, c_slider]) for (θ_slider, ρ_slider, c_slider) in companion_parameters_sliders], widgets.HBox([reset_button, export_button, status_label]), widgets.Label('Transmission Maps (at h=0):'), transmission_plot, widgets.Label('Temporal Response:'), temporal_response_plot]))
     update_plot()
+    if save_as:
+        export_plot()
+
+def plot_temporal_response(ctx: Context=None, save_as: str = None):
+    """Plot temporal response of kernels over hour angle."""
+    if ctx is None:
+        ctx = contexts.get_VLTI()
+        ctx.Δh = 24 * u.hourangle
+        ctx.interferometer.chip.σ = np.zeros(14) * u.nm
+        ctx.interferometer.chip.φ = np.zeros(14) * u.um
+    else:
+        ctx = copy(ctx)
+
+    fig, axs = plt.subplots(3, 1, figsize=(10, 10))
+    tmp_ctx = copy(ctx)
+    nb_companions = len(tmp_ctx.target.companions)
+    tmp_ctx.interferometer.camera.e = ctx.Δh.to(u.hourangle).value * u.hour / 100
+    
+    k_last = None
+    h_range = tmp_ctx.get_h_range()
+    for i in range(nb_companions + 1):
+        if nb_companions == 1 and i == 1:
+            continue
+        tmp2_ctx = copy(tmp_ctx)
+        if i < nb_companions:
+            tmp2_ctx.target.companions = [tmp_ctx.target.companions[i]]
+        else:
+            tmp2_ctx.target.companions = tmp_ctx.target.companions
+        k, b = _series_kernels_and_bright(tmp2_ctx, n=1)
+        k_last = k
+        for kernel in range(3):
+            k[:, kernel] /= b
+            if i < nb_companions:
+                axs[kernel].plot(h_range, k[:, kernel], label=f'Companion {i + 1}', alpha=0.5)
+            else:
+                axs[kernel].plot(h_range, k[:, kernel], label='Total Response', alpha=0.5, linestyle='--', color='k')
+    for ax in axs:
+        ax.set_xlabel('Hour Angle (h)')
+        ax.set_ylabel('Kernel Value')
+        ax.legend()
+    fig.tight_layout()
+    if save_as:
+        save_figure(fig, "temporal_response", save_as, analysis_name="temporal_response")
+        if k_last is not None:
+            save_dataset({
+                "h_range": h_range.to(u.hourangle).value,
+                "kernels": k_last,
+            }, "temporal_response_data", save_as=save_as, analysis_name="temporal_response")
+    plt.show()
+    return fig, axs
 
 def fit(ctx: Context, θ_guess: u.Quantity=0 * u.rad, ρ_guess: u.Quantity=2 * u.mas, c_guess: float=1e-06, save_as=None):
-    """"fit.
-
-Parameters
-----------
-(Automatically added placeholder.)
-
-Returns
--------
-(Automatically added placeholder.)
-"""
     ideal_ctx = copy(ctx)
     ideal_ctx.interferometer.chip.σ = np.zeros(14) * u.nm
     ideal_ctx.interferometer.chip.φ = np.zeros(14) * u.um
@@ -233,41 +236,52 @@ Returns
     selected_kernel = 0
 
     def model(params):
-        """Evaluate temporal kernel model for optimizer parameters."""
         (θ, ρ) = params
         ideal_ctx.target.companions = [Companion(c=c_guess, ρ=ρ * u.mas, θ=θ * u.deg, name='Companion')]
         k, _ = _series_kernels_and_bright(ideal_ctx, n=1)
         return k[:, selected_kernel]
 
     def cauchy_loss(params, x, y):
-        """"cauchy_loss.
-
-Parameters
-----------
-(Automatically added placeholder.)
-
-Returns
--------
-(Automatically added placeholder.)
-"""
         γ = np.median(np.abs(y - np.median(y)))
         residuals = y - model(params)
         return np.sum(np.log(1 + (residuals / γ) ** 2))
+
     x = ctx.get_h_range()
     k_obs, _ = _series_kernels_and_bright(ctx, n=1)
     y = k_obs[:, selected_kernel]
     c_guess = ideal_ctx.target.companions[0].c
     params = np.array([θ_guess.to(u.deg).value, ρ_guess.to(u.mas).value])
     pop = minimize(cauchy_loss, params, args=(x.to(u.hourangle).value, y)).x
-    print(x.shape, y.shape)
-    plt.plot(x, model(pop), label='Fit', color='red')
+    
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(x, model(pop), label='Fit', color='red')
     ideal_k, _ = _series_kernels_and_bright(ideal_ctx, n=1)
-    plt.plot(x, ideal_k[:, selected_kernel], label='Ideal', color='k', linestyle='--')
-    plt.xlabel('Hour Angle')
-    plt.ylabel('Kernel Value')
-    plt.ylabel('Kernel Value')
-    plt.legend()
+    ax.plot(x, ideal_k[:, selected_kernel], label='Ideal', color='k', linestyle='--')
+    ax.set_xlabel('Hour Angle')
+    ax.set_ylabel('Kernel Value')
+    ax.legend()
     if save_as:
-        utils.save_plot(save_as, "temporal_fit.png")
+        save_figure(fig, "temporal_fit", save_as, analysis_name="temporal_response")
+        save_dataset({
+            "x": x.to(u.hourangle).value,
+            "y": y,
+            "fitted_params": pop,
+        }, "temporal_fit_data", save_as=save_as, analysis_name="temporal_response")
     print('Optimized parameters:', pop)
     print(ctx.target)
+    plt.show()
+    return pop
+
+def run(save_as: str = "archives"):
+    """Standalone runner for temporal response analysis."""
+    print("Running temporal_response analysis...")
+    ctx = contexts.get_VLTI()
+    ctx.Δh = 24 * u.hourangle
+    ctx.interferometer.chip.σ = np.zeros(14) * u.nm
+    ctx.interferometer.chip.φ = np.zeros(14) * u.um
+    ctx.target.companions = [Companion(c=1e-3, ρ=2*u.mas, θ=45*u.deg, name='Companion 1')]
+    plot_temporal_response(ctx, save_as=save_as)
+    print("Done temporal_response.")
+
+if __name__ == "__main__":
+    run()

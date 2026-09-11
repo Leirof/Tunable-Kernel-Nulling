@@ -36,6 +36,11 @@ from scipy.optimize import minimize, differential_evolution
 from scipy.ndimage import label
 import warnings
 
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
+
 warnings.filterwarnings("ignore")
 
 # ---------------------------------------------------------------------------
@@ -1438,41 +1443,9 @@ def reconstruct(data: np.ndarray,
 # Optional: quick diagnostic plot
 # ===========================================================================
 
-def plot_results(result: dict, fov: float = 10.0):
+def plot_results(result: dict, fov: float = 10.0, save_as: str = None):
     """
     Generate a quick two-panel diagnostic plot of the reconstruction output.
-
-    Panel 1 — Kernel LASSO image:
-        Shows result['image_lasso'], the raw sparse image from Step 1.
-        Detected sources are overlaid as markers:
-          - Cyan circle  : source passed the field rotation consistency check
-          - Red cross    : source flagged as suspicious (is_consistent = False)
-        Each marker is labelled with the source contrast value.
-
-    Panel 2 — Parametric reconstruction:
-        Shows result['image_final'], the delta-function image from Step 2.
-        Each pixel represents a refined source at sub-pixel precision,
-        with value equal to the fitted contrast.
-
-    The figure title shows the estimated stellar flux f_star and the
-    reduced chi-squared of the parametric fit.
-
-    Parameters
-    ----------
-    result : dict
-        Output dictionary from reconstruct(). Must contain keys:
-          'image_lasso', 'image_final', 'sources', 'f_star', 'reduced_chi2'.
-    fov : float, optional
-        Full field of view in mas. Default 10.0. Used to set the axis extent
-        so that axes are labelled in mas rather than pixel indices.
-        Should match the fov passed to reconstruct().
-
-    Returns
-    -------
-    None
-        Displays the figure via plt.show(). Does not return the figure object.
-        To save the figure, call plt.savefig() before plt.show(), or modify
-        this function to return fig.
     """
     import matplotlib.pyplot as plt
 
@@ -1510,4 +1483,56 @@ def plot_results(result: dict, fov: float = 10.0):
         f"f★ = {result['f_star']:.2e} ph"
     )
     plt.tight_layout()
+    if save_as:
+        save_figure(fig, "image_reconstruction_results", save_as, analysis_name="image_reconstruction")
+        save_dataset({
+            "sources": result.get("sources", []),
+            "f_star": result.get("f_star", 0.0),
+            "reduced_chi2": result.get("reduced_chi2", 0.0),
+            "image_lasso": result.get("image_lasso"),
+            "image_final": result.get("image_final"),
+        }, "reconstruction_dataset", save_as=save_as, analysis_name="image_reconstruction")
     plt.show()
+
+def run(save_as: str = "archives"):
+    """Standalone runner for image reconstruction analysis."""
+    import phise
+    from phise import Companion
+    import astropy.units as u
+    from copy import deepcopy as copy
+
+    print("Running image reconstruction analysis...")
+    ctx = phise.examples.contexts.get_VLTI()
+    ctx.Γ = 1 * u.nm
+    ctx.Δh = 24 * u.hourangle
+    ctx.interferometer.camera.e = 5 * u.min
+    ctx.interferometer.λ = 1.55 * u.um
+    ctx.interferometer.chip.φ = np.zeros(14) * u.nm
+    ctx.interferometer.chip.σ = np.zeros(14) * u.nm
+    ctx.target.companions[0].c = 1e-2
+    ctx.target.companions.append(Companion(c=5e-3, ρ=3*u.mas, θ=120*u.deg))
+    ctx.monochromatic = True
+
+    piston_rms = ctx.Γ.to(u.nm).value
+    fov = ctx.interferometer.fov.to(u.mas).value
+    M = 32
+
+    h_range = ctx.get_h_range()
+    data = np.empty((len(h_range), 10))
+    maps = np.empty((len(h_range), 10, M, M))
+
+    for i, h in enumerate(h_range):
+        ctx_h = copy(ctx)
+        ctx_h.h = h
+        raw_outs = ctx_h.observe()
+        kernels = ctx_h.interferometer.chip.process_outputs(raw_outs)
+        data[i] = np.concatenate([raw_outs, kernels])
+        raw_maps, kernel_maps = ctx_h.get_transmission_maps(N=M)
+        maps[i] = np.concatenate([raw_maps, kernel_maps], axis=0)
+
+    results = reconstruct(data, maps, piston_rms, fov)
+    plot_results(results, fov, save_as=save_as)
+    print("Done image reconstruction analysis.")
+
+if __name__ == "__main__":
+    run()

@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+from copy import deepcopy as copy
 import numpy as np
 import matplotlib.pyplot as plt
 try:
@@ -6,12 +9,16 @@ except Exception:
     pass
 import astropy.units as u
 from scipy.stats import linregress
-from copy import deepcopy as copy
 from phise import Context
 from phise.modules import utils
 import phise.examples.contexts as contexts
 
-def genetic_approach(ctx: Context=None, β: float=0.9, verbose=False, figsize=(10, 10), σ_rms=None, save_as=None):
+try:
+    from ..io_utils import get_archive, save_figure, save_dataset
+except ImportError:
+    from src.analysis.io_utils import get_archive, save_figure, save_dataset
+
+def genetic_approach(ctx: Context=None, β: float=0.9, verbose=False, figsize=(10, 10), σ_rms=None, save_as=None, archive_run=True):
     if ctx is None:
         ctx = contexts.get_VLTI()
     else:
@@ -20,10 +27,17 @@ def genetic_approach(ctx: Context=None, β: float=0.9, verbose=False, figsize=(1
     ctx.target.companions = []
     print_kernel_null_depth_lab_space_atm(ctx)
     ctx.calibrate_gen(β=β, plot=True, verbose=verbose, figsize=figsize, save_as=save_as)
+    fig = plt.gcf()
+    if save_as:
+        save_figure(fig, save_as, default_name="trial_error")
+    if archive_run:
+        arc = get_archive(Path(__file__).parent, name="genetic_approach", beta=β)
+        save_figure(fig, arc.path / "trial_error")
+        save_dataset(arc, "calibrated_phases", phi=ctx.interferometer.chip.φ.to(u.nm).value)
     print_kernel_null_depth_lab_space_atm(ctx)
     return ctx
 
-def obstruction_approach(ctx: Context=None, n: int=1000, figsize=(10, 10), save_as=None):
+def obstruction_approach(ctx: Context=None, n: int=1000, figsize=(10, 10), save_as=None, archive_run=True):
     if ctx is None:
         ctx = contexts.get_VLTI()
     else:
@@ -31,7 +45,14 @@ def obstruction_approach(ctx: Context=None, n: int=1000, figsize=(10, 10), save_
     ctx.Γ = 0 * u.nm
     ctx.target.companions = []
     print_kernel_null_depth_lab_space_atm(ctx)
-    ctx.calibrate_obs(n=n, plot=True, figsize=(10, 10), save_as=save_as)
+    ctx.calibrate_obs(n=n, plot=True, figsize=figsize, save_as=save_as)
+    fig = plt.gcf()
+    if save_as:
+        save_figure(fig, save_as, default_name="obstruction")
+    if archive_run:
+        arc = get_archive(Path(__file__).parent, name="obstruction_approach", n=n)
+        save_figure(fig, arc.path / "obstruction")
+        save_dataset(arc, "calibrated_phases", phi=ctx.interferometer.chip.φ.to(u.nm).value)
     print_kernel_null_depth_lab_space_atm(ctx)
     return ctx
 
@@ -68,7 +89,7 @@ def print_kernel_null_depth(ctx: Context, N=100):
     print('   Med:  ' + ' | '.join([f'{i / b_mean:.2e}' for i in k_med]))
     print('   Std:  ' + ' | '.join([f'{i / b_mean:.2e}' for i in k_std]))
 
-def compare_approaches(ctx: Context=None, β: float=0.9, n: int=10000, figsize=(10, 10), save_as=None):
+def compare_approaches(ctx: Context=None, β: float=0.9, n: int=10000, figsize=(10, 10), save_as=None, archive_run: bool = True):
     if ctx is None:
         ctx = contexts.get_VLTI()
         ctx.monochromatic = True
@@ -137,7 +158,20 @@ def compare_approaches(ctx: Context=None, β: float=0.9, n: int=10000, figsize=(
     plt.yscale('log')
     plt.title('Efficiency of the calibration approaches')
     plt.legend()
-    plt.legend()
+    fig = plt.gcf()
     if save_as:
-        utils.save_plot(save_as, "compare_approaches.png")
+        save_figure(fig, save_as, default_name="comparison")
+    if archive_run:
+        arc = get_archive(Path(__file__).parent, name="compare_approaches", beta=β, n=n)
+        save_figure(fig, arc.path / "compare_approaches")
+        save_dataset(arc, "calibration_comparison", x=x, y=y)
     plt.show()
+
+
+if __name__ == "__main__":
+    print("=== Running Calibration Analysis Standalone ===")
+    ctx = contexts.get_VLTI()
+    genetic_approach(ctx, β=0.6, figsize=(6, 6))
+    obstruction_approach(ctx, n=100, figsize=(6, 6))
+    compare_approaches(ctx, β=0.9, n=1000, figsize=(5, 5))
+    print("=== Calibration Analysis Completed ===")

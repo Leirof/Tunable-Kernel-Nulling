@@ -13,6 +13,13 @@ the theoretical noise fluctuation expected in the window.
 import numpy as np
 import matplotlib.pyplot as plt
 import pltedit
+from pathlib import Path
+
+try:
+    from ..io_utils import get_archive, save_figure, save_dataset
+except ImportError:
+    from src.analysis.io_utils import get_archive, save_figure, save_dataset
+
 
 
 def gaussian_spot(image_shape, center, sigma, total_flux):
@@ -146,8 +153,9 @@ def simulate_capture_response(
     return results
 
 
-def plot_response(results):
+def plot_response(results, save_as=None, show=True):
     """Plot the measured flux response for square and circular windows."""
+
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
 
     for snr, values in results.items():
@@ -192,10 +200,20 @@ def plot_response(results):
 
     fig.suptitle("Square vs circular comparison — central capture and neighbor contamination")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
-    pltedit.save(fig, "detector_optimal_frame_size.plt")
-    plt.show()
+
+    if save_as:
+        save_figure(fig, save_as, default_name="detector_optimal_frame_size")
+    if show:
+        plt.show()
+    return fig
 
 
 if __name__ == "__main__":
+    print("=== Running Detector Optimal Frame Size Analysis Standalone ===")
+    arc = get_archive(Path(__file__).parent, name="detector_optimal_frame_size")
     results = simulate_capture_response()
-    plot_response(results)
+    fig = plot_response(results, save_as=arc.path / "detector_optimal_frame_size", show=False)
+    save_dataset(arc, "optimal_frame_data", **{f"snr_{int(k)}": np.array(list(v.values())) for k, v in results.items() if isinstance(v, dict)})
+    plt.close(fig)
+    print(f"Archived results to {arc.path}")
+

@@ -6,6 +6,10 @@ from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy as copy
 import tqdm
 import yaml
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
 
 # Metrics ---------------------------------------------------------------------
 
@@ -70,7 +74,7 @@ def _run_single_calibration(task):
         "final_metrics": final_metrics,
     }
 
-def generate_data(ctx, metrics, samples=1000, force=False):
+def generate_data(ctx, metrics, samples=1000, force=False, save_as=None):
 
     # Check if data already exists in cache
     if os.path.exists("data.npz") and os.path.exists("data.yml") and not force:
@@ -122,33 +126,21 @@ def generate_data(ctx, metrics, samples=1000, force=False):
 
     executor.shutdown()
 
-    # Save data in a cache file
-    np.savez_compressed(
-        "data.npz",
-        depths_histories=depths_histories,
-        metrics_histories=metrics_histories,
-        final_metrics=final_metrics,
-        metric_names=list(metrics.keys()),
-    )
-
-    # Save metadata in a yml file
-    metadata = {
-        "samples": samples,
-        "metrics": list(metrics.keys()),
-    }
-    with open("data.yml", "w") as f:
-        yaml.dump(metadata, f)
-
-    return {
+    out_dict = {
         "depths_histories": depths_histories,
         "metrics_histories": metrics_histories,
         "final_metrics": final_metrics,
         "metric_names": list(metrics.keys()),
     }
 
+    if save_as:
+        save_dataset(out_dict, "hooke_jeeves_data", save_as=save_as, analysis_name="hooke_jeeves")
+
+    return out_dict
+
 # Plots -----------------------------------------------------------------------
 
-def plot_final_metric_distributions(data, bins=60, density=False, figsize=None):
+def plot_final_metric_distributions(data, bins=60, density=False, figsize=None, save_as=None):
     """Plot final metric distributions after calibration with each metric.
 
     Parameters
@@ -238,11 +230,13 @@ def plot_final_metric_distributions(data, bins=60, density=False, figsize=None):
         ax.legend(fontsize=8)
 
     fig.tight_layout()
+    if save_as:
+        save_figure(fig, "final_metric_distributions", save_as, analysis_name="hooke_jeeves")
     stats_df = pd.DataFrame(distribution_stats)
     return fig, axes, stats_df
 
 
-def plot_final_null_depth_distributions(data, bins=60, density=False, figsize=None):
+def plot_final_null_depth_distributions(data, bins=60, density=False, figsize=None, save_as=None):
     """Plot distributions of final null depths per output, for each calibration metric.
 
     One subplot is created per interferometric output. For each subplot, the
@@ -336,35 +330,15 @@ def plot_final_null_depth_distributions(data, bins=60, density=False, figsize=No
         ax.legend(fontsize=8)
 
     fig.tight_layout()
+    if save_as:
+        save_figure(fig, "final_null_depth_distributions", save_as, analysis_name="hooke_jeeves")
     stats_df = pd.DataFrame(distribution_stats)
     return fig, axes, stats_df
 
 
-def plot_metric_evolution(data, figsize=None, yscale="log"):
-    """Plot the evolution of each calibration metric across iterations.
-
-    For each metric used during calibration, this function summarizes the
-    iteration-wise distribution across Monte Carlo samples using:
-    minimum, maximum, median, and the 5th/95th percentiles.
-
-    Parameters
-    ----------
-    data : dict or numpy.lib.npyio.NpzFile
-        Output returned by :func:`generate_data`.
-        Must contain ``metrics_histories`` with shape
-        ``(n_calibration_metrics, n_samples, n_steps)``.
-        If present, ``metric_names`` is used for subplot titles.
-    figsize : tuple[float, float] or None, default=None
-        Matplotlib figure size. If None, an automatic size is used.
-    yscale : str, default="log"
-        Y-axis scaling. Typical values are ``"log"`` and ``"linear"``.
-
-    Returns
-    -------
-    tuple[matplotlib.figure.Figure, numpy.ndarray, pandas.DataFrame]
-        The figure, the flattened array of axes, and a DataFrame containing
-        per-iteration summary statistics for each metric.
-    """
+def plot_metric_evolution(data, figsize=None, yscale="log", save_as=None):
+    """Plot the evolution of each calibration metric across iterations."""
+    metric_names = data["metric_names"]
     metrics_histories = np.asarray(data["metrics_histories"], dtype=float)
 
     if metrics_histories.ndim != 3:
@@ -373,30 +347,19 @@ def plot_metric_evolution(data, figsize=None, yscale="log"):
             "(n_calibration_metrics, n_samples, n_steps)."
         )
 
-    n_calibration_metrics, n_samples_axis, n_steps = metrics_histories.shape
-    metric_names = data["metric_names"]
-
-    sample_count = n_samples_axis
-    if os.path.exists("data.yml"):
-        with open("data.yml", "r") as metadata_file:
-            metadata = yaml.safe_load(metadata_file) or {}
-        metadata_samples = metadata.get("samples")
-        if isinstance(metadata_samples, int) and metadata_samples > 0:
-            sample_count = min(sample_count, metadata_samples)
-
-    metrics_histories = metrics_histories[:, :sample_count, :]
+    n_calibration_metrics, sample_count, n_steps = metrics_histories.shape
+    iteration_axis = np.arange(n_steps)
 
     if figsize is None:
-        figsize = (8.0, 3.2 * n_calibration_metrics)
+        figsize = (6.0 * n_calibration_metrics, 4.2)
 
-    fig, axes = plt.subplots(n_calibration_metrics, 1, figsize=figsize, squeeze=False)
+    fig, axes = plt.subplots(1, n_calibration_metrics, figsize=figsize, squeeze=False)
     axes = axes.ravel()
-    iteration_axis = np.arange(1, n_steps + 1)
     summary_rows = []
 
-    for calibration_metric_index, ax in enumerate(axes):
-        metric_history = metrics_histories[calibration_metric_index]
-        metric_name = metric_names[calibration_metric_index]
+    for metric_index, ax in enumerate(axes):
+        metric_name = metric_names[metric_index]
+        metric_history = metrics_histories[metric_index, :, :]
 
         with np.errstate(all="ignore"):
             min_history = np.nanmin(metric_history, axis=0)
@@ -448,6 +411,32 @@ def plot_metric_evolution(data, figsize=None, yscale="log"):
             )
 
     fig.tight_layout()
+    if save_as:
+        save_figure(fig, "metric_evolution", save_as, analysis_name="hooke_jeeves")
     summary_df = pd.DataFrame(summary_rows)
     return fig, axes, summary_df
 
+
+def run(ctx=None, save_as="archives", samples=20):
+    """Run Hooke & Jeeves metrics benchmark, save figures and datasets."""
+    from phise import Context
+    import astropy.units as u
+    if ctx is None:
+        ctx = Context.get_VLTI()
+        ctx.interferometer.chip.σ = np.zeros(14) * u.nm
+    
+    metrics = {
+        "average_depth": average_depth,
+        "max_depth": max_depth,
+        "distance": distance,
+    }
+    print("Running Hooke & Jeeves metric benchmark...")
+    data = generate_data(ctx, metrics, samples=samples, force=True, save_as=save_as)
+    plot_final_metric_distributions(data, save_as=save_as)
+    plot_final_null_depth_distributions(data, save_as=save_as)
+    plot_metric_evolution(data, save_as=save_as)
+    print("Done Hooke & Jeeves benchmark.")
+
+
+if __name__ == "__main__":
+    run()

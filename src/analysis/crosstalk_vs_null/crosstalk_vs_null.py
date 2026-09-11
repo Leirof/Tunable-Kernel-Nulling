@@ -9,6 +9,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm.auto import tqdm
 
+from pathlib import Path
+
+try:
+    from ..io_utils import get_archive, save_figure, save_dataset
+except ImportError:
+    from src.analysis.io_utils import get_archive, save_figure, save_dataset
+
 try:
     from .utils import (
         CurveStatistics,
@@ -25,6 +32,7 @@ except ImportError:
         statistics,
         validate_energy_conservation,
     )
+
 
 
 def _null_depth(ctx) -> float:
@@ -100,10 +108,13 @@ def plot_crosstalk_curve(
     before: CurveStatistics,
     after: CurveStatistics,
     ax=None,
+    save_as=None,
 ):
     """Plot mean, median, percentiles, and extrema on a logarithmic null axis."""
     if ax is None:
-        _, ax = plt.subplots(figsize=(8, 5.5), constrained_layout=True)
+        fig, ax = plt.subplots(figsize=(8, 5.5), constrained_layout=True)
+    else:
+        fig = ax.figure
 
     for statistics, color, label in (
         (before, "tab:blue", "Before calibration"),
@@ -122,11 +133,28 @@ def plot_crosstalk_curve(
     ax.set_ylabel("Null depth")
     ax.grid(True, which="both", alpha=0.25)
     ax.legend()
+    if save_as:
+        save_figure(fig, save_as, default_name="crosstalk_vs_null")
     return ax
 
 
 if __name__ == "__main__":
-    levels = np.geomspace(1e-6, 1e-1, 12)
-    levels, before, after = simulate_crosstalk_curve(levels)
-    plot_crosstalk_curve(levels, before, after)
+    print("=== Running Crosstalk vs Null Analysis Standalone ===")
+    arc = get_archive(Path(__file__).parent, name="crosstalk_vs_null")
+    levels = np.geomspace(1e-6, 1e-1, 8)
+    levels, before, after = simulate_crosstalk_curve(levels, bootstrap_samples=10)
+    fig, ax = plt.subplots(figsize=(8, 5.5), constrained_layout=True)
+    plot_crosstalk_curve(levels, before, after, ax=ax)
+    save_figure(fig, arc.path / "crosstalk_vs_null")
+    save_dataset(
+        arc,
+        "crosstalk_curve_data",
+        levels=levels,
+        before_mean=before.mean,
+        before_median=before.median,
+        after_mean=after.mean,
+        after_median=after.median,
+    )
     plt.show()
+    print(f"Archived results to {arc.path}")
+

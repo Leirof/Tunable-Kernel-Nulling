@@ -50,13 +50,20 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from scipy.stats import chi2, exponnorm
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
 
 __all__ = [
     "nsc_forward_sample",
     "fit_nsc",
     "fit_one_hypothesis",
+    "plot_fit_results",
+    "run",
 ]
 
 
@@ -469,3 +476,50 @@ def fit_one_hypothesis(
             rng=rng,
         )
     return fits
+
+
+def plot_fit_results(samples: np.ndarray, fit_res: dict, save_as: str = None):
+    """Plot sample histogram alongside fitted EMG model distribution."""
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.hist(samples, bins=50, density=True, alpha=0.6, color="steelblue", label="Samples")
+    x = np.linspace(np.min(samples), np.max(samples), 500)
+    
+    # Reconstruct EMG parameters
+    tau = 0.5 * (fit_res["sigma_inst"] ** 2)
+    s_bias = max(fit_res["sigma_bias"], 1e-9)
+    if tau > 1e-9:
+        k_shape = tau / s_bias
+        pdf = exponnorm.pdf(x, k_shape, loc=fit_res["na"], scale=s_bias)
+        ax.plot(x, pdf, "r-", lw=2, label=f"Fit (Na={fit_res['na']:.2e})")
+    ax.set_xlabel("Null Depth")
+    ax.set_ylabel("Density")
+    ax.set_title("Null Self-Calibration Fit")
+    ax.legend()
+    if save_as:
+        save_figure(fig, "nsc_fit", save_as, analysis_name="null_self_calibration")
+    return fig, ax
+
+
+def run(save_as: str = "archives"):
+    """Standalone runner for Null Self-Calibration analysis."""
+    print("Running null_self_calibration analysis...")
+    rng = np.random.default_rng(42)
+    true_na = 1e-4
+    true_si = 0.02
+    true_sb = 0.005
+    samples = nsc_forward_sample(2000, true_na, true_si, true_sb, rng)
+    
+    fit_res = fit_nsc(samples, rng=rng, n_bootstrap=50)
+    fig, ax = plot_fit_results(samples, fit_res, save_as=save_as)
+    if save_as:
+        save_dataset({
+            "samples": samples,
+            "fit_res": fit_res,
+            "ground_truth": {"na": true_na, "sigma_inst": true_si, "sigma_bias": true_sb}
+        }, "nsc_results", save_as=save_as, analysis_name="null_self_calibration")
+    print(f"Fitted Na: {fit_res['na']:.2e} (CI: {fit_res['na_ci']})")
+    print("Done null_self_calibration.")
+
+
+if __name__ == "__main__":
+    run()

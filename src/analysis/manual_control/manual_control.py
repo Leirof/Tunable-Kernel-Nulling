@@ -5,6 +5,7 @@ manuellement des configurations d'entrée, observer les sorties du
 nuller et visualiser phases, intensités et cartes.
 """
 import os
+from io import BytesIO
 import numpy as np
 import matplotlib.pyplot as plt
 try:
@@ -17,6 +18,10 @@ from copy import deepcopy as copy
 from phise.classes import Context
 from phise.classes import Companion, Target, Telescope, SuperKN, Interferometer, Camera
 from phise.modules import *
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
 
 def gui(ctx: Context=None, λ: u.Quantity=None, φ: u.Quantity=None, σ: u.Quantity=None):
 
@@ -76,41 +81,44 @@ def gui(ctx: Context=None, λ: u.Quantity=None, φ: u.Quantity=None, σ: u.Quant
 
         # Update small images for inputs
         for i in range(len(ψ)):
-            plt.imshow([[np.abs(ψ[i]) ** 2]], cmap='hot', vmin=0, vmax=np.sum(np.abs(ψ) ** 2))
-            plt.savefig(fname=f'docs/img/tmp.png', format='png')
-            plt.close()
-            with open('docs/img/tmp.png', 'rb') as file:
-                image = file.read()
-                photometric_cameras[i].value = image
+            fig, ax = plt.subplots(figsize=(1, 1))
+            ax.imshow([[np.abs(ψ[i]) ** 2]], cmap='hot', vmin=0, vmax=np.sum(np.abs(ψ) ** 2))
+            ax.axis('off')
+            buf = BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            plt.close(fig)
+            photometric_cameras[i].value = buf.getvalue()
 
         # Update images for bright and dark outputs
-        # bright image
-        plt.imshow([[b]], cmap='hot', vmin=0, vmax=np.sum(d) + b)
-        plt.savefig(fname=f'docs/img/tmp.png', format='png')
-        plt.close()
-        with open('docs/img/tmp.png', 'rb') as file:
-            image = file.read()
-            raw_cameras[0].value = image
+        fig, ax = plt.subplots(figsize=(1, 1))
+        ax.imshow([[b]], cmap='hot', vmin=0, vmax=np.sum(d) + b)
+        ax.axis('off')
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+        plt.close(fig)
+        raw_cameras[0].value = buf.getvalue()
 
         # dark images
         for i in range(len(d)):
-            plt.imshow([[d[i]]], cmap='hot', vmin=0, vmax=np.sum(d))
-            plt.savefig(fname=f'docs/img/tmp.png', format='png')
-            plt.close()
-            with open('docs/img/tmp.png', 'rb') as file:
-                image = file.read()
-                raw_cameras[i + 1].value = image
+            fig, ax = plt.subplots(figsize=(1, 1))
+            ax.imshow([[d[i]]], cmap='hot', vmin=0, vmax=np.sum(d))
+            ax.axis('off')
+            buf = BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            plt.close(fig)
+            raw_cameras[i + 1].value = buf.getvalue()
 
         # kernel images
         for i in range(len(k)):
-            plt.imshow([[k[i]]], cmap='bwr', vmin=-np.max(np.abs(k)), vmax=np.max(np.abs(k)))
-            plt.savefig(fname=f'docs/img/tmp.png', format='png')
-            plt.close()
-            with open('docs/img/tmp.png', 'rb') as file:
-                image = file.read()
-                kernel_cameras[i].value = image
+            fig, ax = plt.subplots(figsize=(1, 1))
+            vmax = max(1e-9, float(np.max(np.abs(k))))
+            ax.imshow([[k[i]]], cmap='bwr', vmin=-vmax, vmax=vmax)
+            ax.axis('off')
+            buf = BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            plt.close(fig)
+            kernel_cameras[i].value = buf.getvalue()
 
-        os.remove('docs/img/tmp.png')
         return (b, d)
     photometric_cameras = [widgets.Image(width=50, height=50) for _ in range(4)]
     # raw_cameras: bright + 6 darks
@@ -146,3 +154,29 @@ def gui(ctx: Context=None, λ: u.Quantity=None, φ: u.Quantity=None, σ: u.Quant
         widget.observe(update_gui, 'value')
     update_gui()
     return vbox
+
+def run(save_as: str = "archives"):
+    """Standalone runner simulating manual control state and saving outputs."""
+    print("Running manual_control analysis...")
+    ctx = Context.get_VLTI()
+    outs = ctx.observe()
+    k = ctx.interferometer.chip.process_outputs(outs)
+    b = outs[0]
+    d = outs[1:]
+    
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.bar(["Bright"] + [f"D{i+1}" for i in range(len(d))] + [f"K{i+1}" for i in range(len(k))],
+           np.concatenate([[b], d, k]))
+    ax.set_title("Manual Control - Baseline Outputs")
+    ax.set_ylabel("Intensity")
+    if save_as:
+        save_figure(fig, "manual_control_state", save_as, analysis_name="manual_control")
+        save_dataset({
+            "bright": b,
+            "darks": d,
+            "kernels": k,
+        }, "outputs", save_as=save_as, analysis_name="manual_control")
+    print("Done manual_control.")
+
+if __name__ == "__main__":
+    run()

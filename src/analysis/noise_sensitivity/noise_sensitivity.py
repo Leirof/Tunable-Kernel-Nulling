@@ -13,6 +13,10 @@ except Exception:
 from copy import deepcopy as copy
 from phise.classes.context import Context
 from phise.modules import utils
+try:
+    from src.analysis.io_utils import save_figure, save_dataset, get_archive
+except ImportError:
+    from io_utils import save_figure, save_dataset, get_archive
 
 def plot(ctx: Context=None, β=0.5, n=1000, γ=10*u.nm, figsize=(15, 5), save_as=None):
     """
@@ -72,7 +76,7 @@ def plot(ctx: Context=None, β=0.5, n=1000, γ=10*u.nm, figsize=(15, 5), save_as
     Γ_range *= u.nm
     step *= u.nm
     stds = []
-    (_, ax) = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
+    (fig, ax) = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
     
     # Loop over atmospheric OPD RMS values
     print('⌛ Computing noise sensitivity...')
@@ -101,4 +105,20 @@ def plot(ctx: Context=None, β=0.5, n=1000, γ=10*u.nm, figsize=(15, 5), save_as
     ax.set_title('Sensitivity to noise')
     ax.legend()
     if save_as:
-        utils.save_plot(save_as, "noise_sensitivity.png")
+        save_figure(fig, "noise_sensitivity", save_as, analysis_name="noise_sensitivity")
+        save_dataset({
+            "Γ_range": Γ_range.to(u.nm).value,
+            "stds": stds,
+        }, "noise_sensitivity_data", save_as=save_as, analysis_name="noise_sensitivity")
+    plt.show()
+
+def run(save_as: str = "archives"):
+    """Standalone runner for noise sensitivity analysis."""
+    print("Running noise sensitivity analysis...")
+    ctx = Context.get_VLTI()
+    ctx.monochromatic = True
+    plot(ctx=ctx, save_as=save_as)
+    print("Done noise sensitivity.")
+
+if __name__ == "__main__":
+    run()

@@ -55,3 +55,8 @@ Returns
     Ik = Ia - Ib
     print('Difference between the signals')
     display(Ik.expand().simplify())
+    return Ik
+
+
+if __name__ == "__main__":
+    show()

@@ -12,9 +12,16 @@ try:
     plt.rcParams['image.origin'] = 'lower'
 except Exception:
     pass
+from pathlib import Path
 from phise import Context
 from phise.classes.archs.superkn import expected_outputs_jit
 from phise.modules import utils
+
+try:
+    from ..io_utils import get_archive, save_figure, save_dataset
+except ImportError:
+    from src.analysis.io_utils import get_archive, save_figure, save_dataset
+
 
 π = np.pi
 
@@ -232,21 +239,23 @@ def instant_distribution(
         axs[2,2].set_xlabel('Kernel output')
         
         # Auto-save logic
+        scenario_names = ['star_only', 'planet_only', 'full']
+        fig = plt.gcf()
         if save_as:
-            scenario_names = ['star_only', 'planet_only', 'full']
-            utils.save_plot(save_as, f"instant_distribution_{scenario_names[i]}.png")
+            save_figure(fig, save_as, default_name=f"instant_distribution_{scenario_names[i]}")
         elif save_path:
             fname = save_path
             if i > 0:
                 import os
                 base, ext = os.path.splitext(save_path)
                 fname = f"{base}_{i}{ext}"
-            plt.savefig(fname)
+            save_figure(fig, fname)
             
         if show:
             plt.show()
         else:
             plt.close()
+
 
     # Basic stats for numerical data only ------------------------------------
     if verbose:
@@ -624,7 +633,7 @@ def time_evolution(ctx: Context=None, n=100, map=np.median, save_as=None, show=T
 
     # Auto-save logic
     if save_as:
-        utils.save_plot(save_as, "time_evolution.png")
+        save_figure(plt.gcf(), save_as, default_name="time_evolution")
     
     if show:
         plt.show()
@@ -632,3 +641,26 @@ def time_evolution(ctx: Context=None, n=100, map=np.median, save_as=None, show=T
         plt.close()
 
     return data, ref_data
+
+
+if __name__ == "__main__":
+    print("=== Running Data Representations Analysis Standalone ===")
+    from phise.examples import contexts
+    from phise import Companion
+    
+    ctx = contexts.get_VLTI()
+    ctx.monochromatic = True
+    ctx.interferometer.chip.σ = np.zeros(14) * u.nm
+    ctx.target.companions[0].c = 1e-2
+    
+    arc = get_archive(Path(__file__).parent, name="data_representations")
+    print(f"Creating archive at {arc.path}")
+    
+    # 1. Instant distribution
+    instant_distribution(ctx, n=1000, save_as=arc.path / "instant_distribution", show=False)
+    
+    # 2. Time evolution
+    data, ref = time_evolution(ctx, n=10, save_as=arc.path / "time_evolution", show=False)
+    save_dataset(arc, "time_series", data=data, ref=ref)
+    
+    print("=== Data Representations Analysis Completed ===")
